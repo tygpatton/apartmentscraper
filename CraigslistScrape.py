@@ -1,5 +1,11 @@
 import requests
 from bs4 import BeautifulSoup
+from pymongo import MongoClient
+
+
+db_client = MongoClient()
+db = db_client['Craigslist']
+tab = db['apts_sfbay']
 
 
 class ScrapeAptListings(object):
@@ -11,7 +17,7 @@ class ScrapeAptListings(object):
 	
 	def ScrapeMain(self, min_rent=None, max_rent=None,
 				bedrooms=None, bathrooms=None, min_sq_ft=None,
-				max_sq_ft=None):
+				max_sq_ft=None, start=0):
 
 
 		if min_rent:
@@ -27,34 +33,64 @@ class ScrapeAptListings(object):
 		if max_sq_ft:
 			self.url += '&maxSqft==' + max_sq_ft
 
+		self.url += 's=%s' % start
+
 		raw_html = requests.get(self.url)
 		#print raw_html.content
 
 		soup = BeautifulSoup(raw_html.content, 'html.parser')
-
 		
 		rows = soup.select('.row')
-		data_list = []
 
 		for row in rows:
 			data_dict = {}
 			data_dict['c_id'] = row['data-pid']
-			data_dict['price'] = row.select('.price')[0].text
-			data_dict['nhood']  = row.select('.pnr > small')[0].text
 			data_dict['tmstmp'] = row.select('.pl > time')[0]['datetime']
 			data_dict['title'] = row.select('.hdrlnk')[0].text
+			data_dict['web_url'] = row.select('.hdrlnk')[0]['href']
+
+			try:
+				data_dict['price'] = row.select('.price')[0].text
+			except:
+				print "No price for listing %s" % row['data-pid']
+
+			try:
+				nhood  = row.select('.pnr > small')[0].text.strip('()')
+				data_dict['nhood'] = nhood
+			except:
+				print "No neighborhood for listing %s" % row['data-pid']
 			
 
+			try:
+				tab.insert(data_dict)
+			except:
+				print "Error inserting listing %s" % row['data-pid']
+				continue
 
-	def IterateListings(self, listing_urls):
-
-		base_url = 'http://' + self.city + 'craigslist.org'
-
-		for listing in listing_urls:
-
-			
-			
+		
 
 
-	def CheckIfSearchTerm(self):	
-		pass	
+	def IterateListings(self, url_list):
+		base = 'http://craigslist.org'
+
+		for url in url_list:
+			d_dict = {}
+			r = requests.get(base + url)
+			soup = BeautifulSoup(r.content, 'html.parser')
+			try:
+				d_dict['latitude'] = soup.select('.mapbox > div')[0]['data-latitude']
+				d_dict['longitude'] = soup.select('.mapbox > div')[0]['data-longitude']
+			except:
+				print 'No location info for listing %s' % url
+
+			try:
+				d_dict['size'] = list(soup.select('.attrgroup sup')[0].parent)[0].text
+			except:
+				print 'No size info for listing %s' % url
+
+		
+			try:
+				d_dict['address'] = soup.select('.mapaddress')[0].text
+			except:
+				print 'No address for listing %s' % url
+
