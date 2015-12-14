@@ -12,12 +12,13 @@ import datetime
 
 class ScrapeAptListings(object):
 
-	def __init__(self, city, keep_running=True):
+	def __init__(self, city, keep_running=True, max_date=None):
 		self.city = city
 		self.url = 'http://' + city + '.craigslist.org/search/apa?'
 		self.keep_running = keep_running
+		self.max_date = max_date
 	
-	def scrape(self, max_date=None, start=0, min_rent=None, max_rent=None,
+	def scrape(self, start=0, min_rent=None, max_rent=None,
 				bedrooms=None, bathrooms=None, min_sq_ft=None,
 				max_sq_ft=None):
 
@@ -48,7 +49,8 @@ class ScrapeAptListings(object):
 		for row in rows:
 			data_dict = {}
 			data_dict['c_id'] = row['data-pid']
-			data_dict['tmstmp'] = row.select('.pl > time')[0]['datetime']
+			current_date = row.select('.pl > time')[0]['datetime']
+			data_dict['tmstmp'] = current_date
 			data_dict['title'] = row.select('.hdrlnk')[0].text
 			data_dict['web_url'] = row.select('.hdrlnk')[0]['href']
 
@@ -62,7 +64,22 @@ class ScrapeAptListings(object):
 				data_dict['nhood'] = nhood
 			except:
 				print "No neighborhood for listing %s" % row['data-pid']
+
+			# date control features
+			conv_date = datetime.datetime.strptime(current_date, '%Y-%m-%d %H:%M')
+
+			if not self.max_date:
+				self.max_date = conv_date
+
+			elif conv_date > self.max_date:
+				self.max_date = conv_date
 			
+			else:
+				self.write_max_date()
+				self.keep_running = False
+				break
+
+			data_list.append(data_dict)
 			# If inserting into Mongo:
 			# try:
 			# 	tab.insert(data_dict)
@@ -70,8 +87,9 @@ class ScrapeAptListings(object):
 			# 	print "Error inserting listing %s" % row['data-pid']
 			# 	continue
 
-			data_list.append(data_dict)
-
+		for listing in data_list:
+			additional = self.scrape_listing(listing['web_url'])
+			listing.update(additional)
 
 		return data_list
 
@@ -124,23 +142,22 @@ class ScrapeAptListings(object):
 			start += 100
 		return data
 
-	def write_max_date(self, max_date):
+	def write_max_date(self):
 		with open('max_date.txt', 'w') as f:
-			f.write(str(max_date))
+			f.write(str(self.max_date))
 
 	def read_max_date(self):
 		with open('max_date.txt', 'r') as f:
-			max_date = f.read()
+			temp_date = f.read()
+			temp_date = datetime.datetime.strptime(max_date, '%Y-%m-%d %H:%M')
+			self.max_date = temp_date
 
-		return max_date
+	def write_json(self):
+
 
 if __name__ == '__main__':
 	scraper = ScrapeAptListings('sfbay')
 	data_list = scraper.scrape()
-
-	for listing in data_list:
-		additional = scraper.scrape_listing(listing['web_url'])
-		listing.update(additional)
 
 	with open('test.json', 'w') as f:
 		json.dump(data_list, f)
