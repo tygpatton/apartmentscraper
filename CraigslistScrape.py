@@ -2,6 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 from pymongo import MongoClient
 import json
+import datetime
 
 # if using Mongo:
 # db_client = MongoClient()
@@ -11,14 +12,14 @@ import json
 
 class ScrapeAptListings(object):
 
-	def __init__(self, city):
+	def __init__(self, city, keep_running=True):
 		self.city = city
 		self.url = 'http://' + city + '.craigslist.org/search/apa?'
-
+		self.keep_running = keep_running
 	
-	def scrape(self, min_rent=None, max_rent=None,
+	def scrape(self, max_date=None, start=0, min_rent=None, max_rent=None,
 				bedrooms=None, bathrooms=None, min_sq_ft=None,
-				max_sq_ft=None, start=0):
+				max_sq_ft=None):
 
 		if min_rent:
 			self.url += '&min_price=' + min_rent
@@ -71,6 +72,7 @@ class ScrapeAptListings(object):
 
 			data_list.append(data_dict)
 
+
 		return data_list
 
 	def scrape_listing(self, list_id):
@@ -110,6 +112,27 @@ class ScrapeAptListings(object):
 		# 	print "Unable to update listing %s" % url
 
 		return d_dict
+
+
+	def controlled_scrape(self):
+		# add line to read in max date from other file
+		today = datetime.date.today()
+		s = 0
+		data = []
+		while self.keep_running:
+			data += self.scrape(start=s)
+			start += 100
+		return data
+
+	def write_max_date(self, max_date):
+		with open('max_date.txt', 'w') as f:
+			f.write(str(max_date))
+
+	def read_max_date(self):
+		with open('max_date.txt', 'r') as f:
+			max_date = f.read()
+
+		return max_date
 
 if __name__ == '__main__':
 	scraper = ScrapeAptListings('sfbay')
