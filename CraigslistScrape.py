@@ -1,12 +1,12 @@
 import requests
 from bs4 import BeautifulSoup
 from pymongo import MongoClient
-import boto
+import json
 
-
-db_client = MongoClient()
-db = db_client['SF']
-tab = db['test']
+# if using Mongo:
+# db_client = MongoClient()
+# db = db_client['SF']
+# tab = db['test']
 
 
 class ScrapeAptListings(object):
@@ -16,10 +16,9 @@ class ScrapeAptListings(object):
 		self.url = 'http://' + city + '.craigslist.org/search/apa?'
 
 	
-	def ScrapeMain(self, min_rent=None, max_rent=None,
+	def scrape(self, min_rent=None, max_rent=None,
 				bedrooms=None, bathrooms=None, min_sq_ft=None,
 				max_sq_ft=None, start=0):
-
 
 		if min_rent:
 			self.url += '&min_price=' + min_rent
@@ -43,6 +42,8 @@ class ScrapeAptListings(object):
 		
 		rows = soup.select('.row')
 
+		data_list = []
+
 		for row in rows:
 			data_dict = {}
 			data_dict['c_id'] = row['data-pid']
@@ -61,48 +62,67 @@ class ScrapeAptListings(object):
 			except:
 				print "No neighborhood for listing %s" % row['data-pid']
 			
+			# If inserting into Mongo:
+			# try:
+			# 	tab.insert(data_dict)
+			# except:
+			# 	print "Error inserting listing %s" % row['data-pid']
+			# 	continue
 
-			try:
-				tab.insert(data_dict)
-			except:
-				print "Error inserting listing %s" % row['data-pid']
-				continue
+			data_list.append(data_dict)
+
+		return data_list
+
+	def scrape_listing(self, list_id):
+
+		base = 'http://www.craigslist.org'
+		d_dict = {}
+		r = requests.get(base + list_id)
+
+		if r.status_code != 200:
+			print 'Error retrieving listing %s' % list_id
+			print 'Status Code: ', r.status_code
+			print
+
+		soup = BeautifulSoup(r.content, 'html.parser')
+
+		try:
+			d_dict['latitude'] = soup.select('.mapbox > div')[0]['data-latitude']
+			d_dict['longitude'] = soup.select('.mapbox > div')[0]['data-longitude']
+		except:
+			print 'No location info for listing %s' % list_id
+
+		try:
+			d_dict['size'] = list(soup.select('.attrgroup sup')[0].parent)[0].text
+		except:
+			print 'No size info for listing %s' % list_id
+
+	
+		try:
+			d_dict['address'] = soup.select('.mapaddress')[0].text
+		except:
+			print 'No address for listing %s' % list_id
+
+		# If inserting into Mongo:
+		# try:
+		# 	tab.update_one({'web_url': url}, {'$set': d_dict})
+		# except:
+		# 	print "Unable to update listing %s" % url
+
+		return d_dict
+
+if __name__ == '__main__':
+	scraper = ScrapeAptListings('sfbay')
+	data_list = scraper.scrape()
+
+	for listing in data_list:
+		additional = scraper.scrape_listing(listing['web_url'])
+		listing.update(additional)
+
+	with open('test.json', 'w') as f:
+		json.dump(data_list, f)
 
 
-	def IterateListings(self, url_list):
-		base = 'http://craigslist.org'
 
-		for url in url_list:
-			d_dict = {}
-			r = requests.get(base + url)
 
-			if r.status_code != 200:
-				print 'Error retrieving listing %s' % url
-				print 'Status Code: ', r.status_code
-				print
-				continue
-
-			soup = BeautifulSoup(r.content, 'html.parser')
-
-			try:
-				d_dict['latitude'] = soup.select('.mapbox > div')[0]['data-latitude']
-				d_dict['longitude'] = soup.select('.mapbox > div')[0]['data-longitude']
-			except:
-				print 'No location info for listing %s' % url
-
-			try:
-				d_dict['size'] = list(soup.select('.attrgroup sup')[0].parent)[0].text
-			except:
-				print 'No size info for listing %s' % url
-
-		
-			try:
-				d_dict['address'] = soup.select('.mapaddress')[0].text
-			except:
-				print 'No address for listing %s' % url
-
-			try:
-				tab.update_one({'web_url': url}, {'$set': d_dict})
-			except:
-				print "Unable to update listing %s" % url
 
